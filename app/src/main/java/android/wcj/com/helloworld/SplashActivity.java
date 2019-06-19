@@ -21,39 +21,54 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class SplashActivity extends AppCompatActivity {
     private final String url="http://10.134.141.214:8080/online/111.jpg";
     private Handler handler;
+    private Timer timer;
+    private Runnable runnable;
     private final int SPALSH_DISPLAY_TIME=3000;
     public static final int GET_IMAGE_SUCCESS=1;
     public static final int NET_ERROR=2;
     public static final int SERVER_ERROR=3;
     private ImageView image;
-    private Handler nethandler=new Handler(){
-        @Override
-        public void handleMessage(Message msg) {
-            super.handleMessage(msg);
-            switch (msg.what){
-                case GET_IMAGE_SUCCESS:
-                    Bitmap bitmap=(Bitmap)msg.obj;
-                    image=findViewById(R.id.image);
-                    image.setImageBitmap(bitmap);
-                    break;
-                case NET_ERROR:
-                    Toast.makeText(getApplicationContext(),"网络连接失败",Toast.LENGTH_SHORT).show();
-                case SPALSH_DISPLAY_TIME:
-                    Toast.makeText(getApplicationContext(),"服务器错误",Toast.LENGTH_SHORT).show();
+    private int time =3;
+    //主线程用来更新ui
+    private static Handler uihandler;
+    public SplashActivity() {
+        uihandler = new Handler(){
+            @Override
+            public void handleMessage(Message msg) {
+                super.handleMessage(msg);
+                switch (msg.what){
+                    case GET_IMAGE_SUCCESS:
+                        Bitmap bitmap=(Bitmap)msg.obj;
+                        image=findViewById(R.id.image);
+                        image.setImageBitmap(bitmap);
+                        break;
+                    case NET_ERROR:
+                        Toast.makeText(getApplicationContext(),"网络连接失败",Toast.LENGTH_SHORT).show();
+                    case SPALSH_DISPLAY_TIME:
+                        Toast.makeText(getApplicationContext(),"服务器错误",Toast.LENGTH_SHORT).show();
+                    case 0:
+                        Button button=findViewById(R.id.quickbutton);
+                        button.setText("点击跳过(" + time + ")");
+                }
             }
-        }
-    };
+        };
+    }
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        //隐藏andorid标题栏和系统栏（全屏）
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getSupportActionBar().hide();
         setImageURL(url);
         setContentView(R.layout.activity_splash);
+        //使用handler线程延迟跳转
         handler =new Handler();
         Button button =findViewById(R.id.quickbutton);
         button.setOnClickListener(new View.OnClickListener() {
@@ -62,16 +77,27 @@ public class SplashActivity extends AppCompatActivity {
                 Intent intent=new Intent(SplashActivity.this,MainActivity.class);
                 startActivity(intent);
                 SplashActivity.this.finish();
+                timer.cancel();
             }
         });
-        handler.postDelayed(new Runnable() {
+        handler.postDelayed(runnable =new Runnable() {
             @Override
             public void run() {
                 Intent intent=new Intent(SplashActivity.this,MainActivity.class);
                 startActivity(intent);
                 SplashActivity.this.finish();
+                timer.cancel();
             }
         },SPALSH_DISPLAY_TIME);
+        //使用timer进程做计时器显示
+          timer =new Timer(true);
+        timer.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                time--;
+                uihandler.sendEmptyMessage((time == 4 ? 0: 0));
+            }
+        },1000,1000);
     }
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -81,6 +107,7 @@ public class SplashActivity extends AppCompatActivity {
         return super.onKeyDown(keyCode, event);
     }
     public void setImageURL(final String path){
+        //网络操作需要在子进程进行
         new Thread(){
             @Override
             public void run() {
@@ -100,16 +127,23 @@ public class SplashActivity extends AppCompatActivity {
                         Message message=Message.obtain();
                         message.obj=bitmap;
                         message.what=GET_IMAGE_SUCCESS;
-                        nethandler.sendMessage(message);
+                        uihandler.sendMessage(message);
                         inputStream.close();
                     }else{
-                        nethandler.sendEmptyMessage(SERVER_ERROR);
+                        uihandler.sendEmptyMessage(SERVER_ERROR);
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
-                    nethandler.sendEmptyMessage(NET_ERROR);
+                    uihandler.sendEmptyMessage(NET_ERROR);
                 }
             }
         }.start();
+    }
+//销毁线程
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        timer.cancel();
+        handler.removeCallbacks(runnable);
     }
 }
